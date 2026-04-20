@@ -7,12 +7,51 @@ from src.explainer import Explainer
 
 st.set_page_config(page_title="MovieWhisper", page_icon="movie", layout="wide")
 
+
 @st.cache_data
 def load_data():
     ratings = load_ratings("data/movielens/u.data")
     movies = load_movies("data/movielens/u.item")
     users = load_users("data/movielens/u.user")
     return ratings, movies, users
+
+
+@st.cache_data
+def get_recommendations(user_id, ratings_hash, _user_ratings, _all_ratings, _movies):
+    """Cache recommendations by user_id + ratings snapshot.
+    Only recomputes when ratings change. First call is slow, subsequent calls are instant."""
+    user_rating_rows = [
+        {"user_id": user_id, "movie_id": mid, "rating": rating}
+        for mid, rating in _user_ratings.items()
+    ]
+    other_ratings = _all_ratings[_all_ratings["user_id"] != user_id]
+    combined = pd.concat([other_ratings, pd.DataFrame(user_rating_rows)], ignore_index=True)
+
+    recommender = HybridRecommender(combined, _movies)
+    recommender.fit()
+    return recommender.recommend(user_id=user_id, top_k=10)
+
+
+@st.cache_data
+def get_similar_users(user_id, ratings_hash, _user_ratings, _all_ratings):
+    """Cache similar users computation."""
+    from src.collaborative import CollaborativeFilter
+    user_rating_rows = [
+        {"user_id": user_id, "movie_id": mid, "rating": rating}
+        for mid, rating in _user_ratings.items()
+    ]
+    other_ratings = _all_ratings[_all_ratings["user_id"] != user_id]
+    combined = pd.concat([other_ratings, pd.DataFrame(user_rating_rows)], ignore_index=True)
+
+    cf = CollaborativeFilter()
+    cf.fit(combined)
+    return cf.find_similar_users(user_id, top_k=5)
+
+
+def ratings_hash(user_ratings):
+    """Create a hashable key from user ratings dict for caching."""
+    return frozenset(user_ratings.items())
+
 
 ratings, movies, users = load_data()
 
@@ -99,22 +138,14 @@ elif page == "获取推荐":
     elif len(st.session_state.user_ratings) < 3:
         st.warning("请至少评分 3 部电影后再获取推荐")
     else:
-        user_rating_rows = []
-        for mid, rating in st.session_state.user_ratings.items():
-            user_rating_rows.append({
-                "user_id": st.session_state.current_user,
-                "movie_id": mid,
-                "rating": rating,
-            })
-        user_df = pd.DataFrame(user_rating_rows)
-        other_ratings = ratings[ratings["user_id"] != st.session_state.current_user]
-        combined = pd.concat([other_ratings, user_df], ignore_index=True)
-
+        r_hash = ratings_hash(st.session_state.user_ratings)
         with st.spinner("正在计算推荐..."):
-            recommender = HybridRecommender(combined, movies)
-            recommender.fit()
-            recs = recommender.recommend(
-                user_id=st.session_state.current_user, top_k=10
+            recs = get_recommendations(
+                st.session_state.current_user,
+                r_hash,
+                st.session_state.user_ratings,
+                ratings,
+                movies,
             )
 
         if not recs:
@@ -149,13 +180,10 @@ elif page == "用户画像":
     if not st.session_state.current_user:
         st.warning("请先在「选择用户」页面选择一个用户")
     else:
-        user_rating_rows = []
-        for mid, rating in st.session_state.user_ratings.items():
-            user_rating_rows.append({
-                "user_id": st.session_state.current_user,
-                "movie_id": mid,
-                "rating": rating,
-            })
+        user_rating_rows = [
+            {"user_id": st.session_state.current_user, "movie_id": mid, "rating": rating}
+            for mid, rating in st.session_state.user_ratings.items()
+        ]
         user_df = pd.DataFrame(user_rating_rows)
         builder = UserProfileBuilder(user_df, movies)
 
@@ -182,22 +210,13 @@ elif page == "用户画像":
                 st.bar_chart(rating_dist)
 
         st.subheader("与你口味相似的用户")
-        user_rating_rows_full = []
-        for mid, rating in st.session_state.user_ratings.items():
-            user_rating_rows_full.append({
-                "user_id": st.session_state.current_user,
-                "movie_id": mid,
-                "rating": rating,
-            })
-        combined = pd.concat([
-            ratings[ratings["user_id"] != st.session_state.current_user],
-            pd.DataFrame(user_rating_rows_full),
-        ], ignore_index=True)
-
-        from src.collaborative import CollaborativeFilter
-        cf = CollaborativeFilter()
-        cf.fit(combined)
-        similar = cf.find_similar_users(st.session_state.current_user, top_k=5)
+        r_hash = ratings_hash(st.session_state.user_ratings)
+        similar = get_similar_users(
+            st.session_state.current_user,
+            r_hash,
+            st.session_state.user_ratings,
+            ratings,
+        )
 
         if similar:
             for uid, sim_score in similar:
