@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(mkdir -p data/movielens)",
+      "Bash(unzip -o data/ml-100k.zip -d data/movielens/)",
+      "Bash(cd:*)",
+      "Bash(cp data/movielens/ml-100k/* data/movielens/)",
+      "Bash(rm -rf data/movielens/ml-100k)",
+      "Bash(git:*)",
+      "Bash(awk -F'|' '{print NF}' D:/codeproject/机械学习/data/movielens/u.item)"
+    ]
+  }
+}

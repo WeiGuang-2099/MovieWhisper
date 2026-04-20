@@ -40,6 +40,7 @@ class HybridRecommender:
             self.ratings[self.ratings["user_id"] == user_id]["movie_id"].tolist()
         )
 
+        # Normalize CF scores to 0-1 range
         if cf_scores:
             cf_max = max(cf_scores.values())
             cf_min = min(cf_scores.values())
@@ -47,12 +48,17 @@ class HybridRecommender:
         else:
             cf_range = 1
 
+        # Normalize CB scores to 0-1 range
         if cb_scores:
             cb_max = max(cb_scores.values())
             cb_min = min(cb_scores.values())
             cb_range = cb_max - cb_min if cb_max > cb_min else 1
         else:
             cb_range = 1
+
+        # Pre-compute genre columns and movie lookup
+        genre_cols = [c for c in self.movies.columns if c.startswith("genre_")]
+        movie_lookup = self.movies.set_index("movie_id")
 
         recommendations = []
         for mid in all_movie_ids:
@@ -73,12 +79,11 @@ class HybridRecommender:
             else:
                 source = "content"
 
-            title_row = self.movies[self.movies["movie_id"] == mid]
-            title = title_row["title"].iloc[0] if len(title_row) > 0 else f"Movie {mid}"
+            row = movie_lookup.loc[mid] if mid in movie_lookup.index else None
+            title = row["title"] if row is not None else f"Movie {mid}"
 
-            genre_cols = [c for c in self.movies.columns if c.startswith("genre_")]
-            if len(title_row) > 0:
-                genres = [c.replace("genre_", "") for c in genre_cols if title_row[c].iloc[0] == 1]
+            if row is not None:
+                genres = [c.replace("genre_", "") for c in genre_cols if row[c] == 1]
                 genre_str = "/".join(genres) if genres else "Unknown"
             else:
                 genre_str = "Unknown"

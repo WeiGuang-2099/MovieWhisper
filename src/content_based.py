@@ -13,12 +13,14 @@ class ContentBasedFilter:
         self.movie_id_to_idx = None
 
     def fit(self):
-        """Build genre feature matrix."""
+        """Build genre feature matrix and precompute movie-movie similarity."""
         features = self.movies[self.genre_cols].values
         self.feature_matrix = features
         self.movie_id_to_idx = {
             mid: idx for idx, mid in enumerate(self.movies["movie_id"].tolist())
         }
+        # Precompute all pairwise movie similarities (1682x1682, fast once)
+        self.movie_similarity_matrix = cosine_similarity(features)
 
     def recommend(
         self, user_ratings: pd.DataFrame, top_k: int = 10
@@ -45,29 +47,20 @@ class ContentBasedFilter:
         similarities = cosine_similarity(user_profile_2d, self.feature_matrix)[0]
 
         rated_set = set(rated_movie_ids)
+        rated_indices = [self.movie_id_to_idx[mid] for mid in rated_movie_ids if mid in self.movie_id_to_idx]
+
         recommendations = []
         movie_ids = self.movies["movie_id"].tolist()
         for idx, sim_score in enumerate(similarities):
             mid = movie_ids[idx]
             if mid not in rated_set and sim_score > 0:
-                best_similar = None
-                best_sim = -1
-                for rated_mid in rated_movie_ids:
-                    if rated_mid in self.movie_id_to_idx:
-                        rated_idx = self.movie_id_to_idx[rated_mid]
-                        pair_sim = cosine_similarity(
-                            self.feature_matrix[idx].reshape(1, -1),
-                            self.feature_matrix[rated_idx].reshape(1, -1),
-                        )[0][0]
-                        if pair_sim > best_sim:
-                            best_sim = pair_sim
-                            best_similar = rated_mid
-
-                similar_title = ""
-                if best_similar is not None:
-                    similar_title = self.movies[
-                        self.movies["movie_id"] == best_similar
-                    ]["title"].iloc[0]
+                # Use precomputed matrix to find most similar rated movie
+                if rated_indices:
+                    pair_sims = self.movie_similarity_matrix[idx, rated_indices]
+                    best_rated_idx = rated_indices[np.argmax(pair_sims)]
+                    similar_title = self.movies.iloc[best_rated_idx]["title"]
+                else:
+                    similar_title = ""
 
                 recommendations.append({
                     "movie_id": int(mid),

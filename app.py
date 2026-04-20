@@ -65,7 +65,7 @@ st.sidebar.caption("可解释电影推荐引擎")
 
 page = st.sidebar.radio(
     "导航",
-    ["选择用户", "电影评分", "获取推荐", "用户画像"],
+    ["选择用户", "电影评分", "获取推荐", "用户画像", "模型评估"],
 )
 
 explainer = Explainer()
@@ -107,8 +107,15 @@ elif page == "电影评分":
         else:
             filtered = movies
 
+        refresh_key = f"sample_seed_{st.session_state.current_user}"
+        if refresh_key not in st.session_state:
+            st.session_state[refresh_key] = 42
+        if st.button("换一批"):
+            import random
+            st.session_state[refresh_key] = random.randint(0, 99999)
+
         sample_size = min(20, len(filtered))
-        sample_movies = filtered.sample(sample_size, random_state=42)
+        sample_movies = filtered.sample(sample_size, random_state=st.session_state[refresh_key])
 
         for _, movie in sample_movies.iterrows():
             col1, col2 = st.columns([3, 1])
@@ -155,12 +162,12 @@ elif page == "获取推荐":
                 with st.container():
                     col1, col2 = st.columns([2, 1])
                     with col1:
-                        source_emoji = {
+                        source_labels = {
                             "hybrid": "[综合]",
                             "collaborative": "[相似用户]",
                             "content": "[风格匹配]",
                         }
-                        source_tag = source_emoji.get(rec["source"], "")
+                        source_tag = source_labels.get(rec["source"], "")
                         st.subheader(f"{i+1}. {rec['title']} {source_tag}")
                         st.caption(f"类型: {rec.get('genres', '')}")
                         st.write(rec["reason"])
@@ -230,3 +237,35 @@ elif page == "用户画像":
                     )
         else:
             st.info("暂无相似用户数据，请评分更多电影")
+
+# Page: Model Evaluation
+elif page == "模型评估":
+    st.header("模型评估")
+    st.caption("使用留一法 (Leave-One-Out) 交叉验证，对 100 个用户采样评估")
+
+    k = st.slider("Top-K", min_value=5, max_value=20, value=10, step=5)
+
+    if st.button("开始评估"):
+        from src.evaluator import evaluate_recommender
+        with st.spinner("正在评估模型，请稍候..."):
+            results = evaluate_recommender(ratings, movies, k=k)
+
+        # Display results as a table
+        st.subheader(f"评估结果 (K={k})")
+        metrics_df = pd.DataFrame(results).T
+        metrics_df.columns = ["Precision@K", "Recall@K", "NDCG@K", "RMSE", "MAE"]
+        st.dataframe(metrics_df, use_container_width=True)
+
+        # Bar chart comparison
+        st.subheader("指标对比")
+        chart_metrics = ["Precision@K", "Recall@K", "NDCG@K"]
+        st.bar_chart(metrics_df[chart_metrics])
+
+        st.subheader("指标说明")
+        st.markdown("""
+- **Precision@K**: 推荐列表中用户实际喜欢的比例（越高越好）
+- **Recall@K**: 用户喜欢的电影中被推荐出来的比例（越高越好）
+- **NDCG@K**: 考虑排序位置的归一化指标（越高越好，1.0 为满分）
+- **RMSE**: 预测评分与实际评分的均方根误差（越低越好）
+- **MAE**: 预测评分与实际评分的平均绝对误差（越低越好）
+""")

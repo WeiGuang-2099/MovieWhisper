@@ -12,13 +12,29 @@ class CollaborativeFilter:
         self.movie_ids = None
 
     def fit(self, ratings: pd.DataFrame):
-        """Build user-item rating matrix from ratings DataFrame."""
-        self.user_item_matrix = ratings.pivot_table(
+        """Build user-item rating matrix from ratings DataFrame.
+
+        Uses mean-centering: subtract each user's mean rating so that
+        unrated items stay at 0, and similarity reflects taste deviation
+        rather than raw score levels.
+        """
+        raw_matrix = ratings.pivot_table(
             index="user_id",
             columns="movie_id",
             values="rating",
             fill_value=0,
         )
+        # Mean-center: for each user, subtract their mean from rated items
+        # Unrated items remain 0 (neutral, won't affect cosine similarity)
+        user_means = raw_matrix.replace(0, np.nan).mean(axis=1)
+        self.user_means = user_means
+        centered = raw_matrix.copy()
+        for uid in raw_matrix.index:
+            rated_mask = raw_matrix.loc[uid] != 0
+            centered.loc[uid, rated_mask] = raw_matrix.loc[uid, rated_mask] - user_means[uid]
+
+        self.user_item_matrix = centered
+        self.raw_matrix = raw_matrix
         self.user_ids = self.user_item_matrix.index.tolist()
         self.movie_ids = self.user_item_matrix.columns.tolist()
 
@@ -50,15 +66,16 @@ class CollaborativeFilter:
             return []
 
         user_rated = set(
-            self.user_item_matrix.columns[
-                self.user_item_matrix.loc[user_id] > 0
+            self.raw_matrix.columns[
+                self.raw_matrix.loc[user_id] > 0
             ].tolist()
         )
 
+        # Use raw (original) ratings for predicted score, weighted by similarity
         movie_scores = {}
         movie_contributors = {}
         for sim_user_id, sim_score in similar_users:
-            sim_user_ratings = self.user_item_matrix.loc[sim_user_id]
+            sim_user_ratings = self.raw_matrix.loc[sim_user_id]
             for movie_id in self.movie_ids:
                 rating = sim_user_ratings[movie_id]
                 if rating > 0 and movie_id not in user_rated:

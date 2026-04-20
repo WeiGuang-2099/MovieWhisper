@@ -39,6 +39,6 @@ def test_generate_text_explanation_collaborative():
 
 def test_generate_source_label():
     exp = Explainer()
-    assert exp.generate_source_label("hybrid") == "hybrid"
-    assert exp.generate_source_label("collaborative") == "collaborative"
-    assert exp.generate_source_label("content") == "content"
+    assert exp.generate_source_label("hybrid") == "综合推荐"
+    assert exp.generate_source_label("collaborative") == "相似用户推荐"
+    assert exp.generate_source_label("content") == "风格匹配推荐"

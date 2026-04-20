@@ -29,5 +29,5 @@ class Explainer:
         return " | ".join(parts)
 
     def generate_source_label(self, source: str) -> str:
-        """Return a short label for the recommendation source."""
-        return source
+        """Return a short Chinese label for the recommendation source."""
+        return SOURCE_LABELS.get(source, source)
